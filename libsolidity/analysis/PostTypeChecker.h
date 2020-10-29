@@ -72,6 +72,8 @@ public:
 private:
 	bool visit(ContractDefinition const& _contract) override;
 	void endVisit(ContractDefinition const& _contract) override;
+	bool visit(FunctionDefinition const& _function) override;
+	void endVisit(FunctionDefinition const& _function) override;
 	void endVisit(OverrideSpecifier const& _overrideSpecifier) override;
 
 	bool visit(VariableDeclaration const& _variable) override;

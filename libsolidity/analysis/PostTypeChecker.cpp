@@ -19,13 +19,16 @@
 #include <libsolidity/analysis/PostTypeChecker.h>
 
 #include <libsolidity/ast/AST.h>
+#include <libsolidity/ast/CallGraph.h>
 #include <libsolidity/interface/Version.h>
 #include <liblangutil/ErrorReporter.h>
 #include <liblangutil/SemVerHandler.h>
 #include <libsolutil/Algorithms.h>
 
 #include <boost/range/adaptor/map.hpp>
+#include <boost/range/join.hpp>
 #include <memory>
+#include <set>
 
 using namespace std;
 using namespace solidity;
@@ -53,6 +56,16 @@ bool PostTypeChecker::visit(ContractDefinition const& _contractDefinition)
 void PostTypeChecker::endVisit(ContractDefinition const& _contractDefinition)
 {
 	callEndVisit(_contractDefinition);
+}
+
+bool PostTypeChecker::visit(FunctionDefinition const& _function)
+{
+	return callVisit(_function);
+}
+
+void PostTypeChecker::endVisit(FunctionDefinition const& _function)
+{
+	callEndVisit(_function);
 }
 
 void PostTypeChecker::endVisit(OverrideSpecifier const& _overrideSpecifier)
@@ -362,6 +375,66 @@ private:
 	/// Flag indicating whether we are currently inside a StructDefinition.
 	int m_insideStruct = 0;
 };
+
+struct CircularContractDependencies: public PostTypeChecker::Checker
+{
+	CircularContractDependencies(ErrorReporter& _errorReporter):
+		Checker(_errorReporter)
+	{}
+
+	bool visit(ContractDefinition const& _contract) override
+	{
+		auto joined = boost::join(
+			_contract.annotation().creationCallGraph->get()->createdContracts,
+			_contract.annotation().deployedCallGraph->get()->createdContracts
+		);
+
+		for (auto const& [contract, referencee]: joined)
+			if (contract != &_contract)
+				_contract.annotation().contractDependencies.emplace(contract, referencee);
+
+		return true;
+	}
+	void endVisit(ContractDefinition const& _contract) override
+	{
+		auto const& [contract, referencee] = dependenciesAreCyclic(_contract);
+
+		if (contract)
+		{
+			SecondarySourceLocation ssl{};
+			ssl.append(string{"Referenced contract"}, contract->location());
+
+			m_errorReporter.typeError(
+				7813_error,
+				referencee->location(),
+				ssl,
+				"Circular reference found."
+			);
+		}
+	}
+
+private:
+	std::pair<ContractDefinition const*, ASTNode const*> dependenciesAreCyclic(
+		ContractDefinition const& _currentContract,
+		ASTNode const* _referencee = nullptr,
+		std::set<ContractDefinition const*> const& _seenContracts = std::set<ContractDefinition const*>()
+	) const
+	{
+		// Naive depth-first search that remembers nodes already seen.
+		if (_seenContracts.count(&_currentContract))
+			return {&_currentContract, _referencee};
+		set<ContractDefinition const*> seen(_seenContracts);
+		seen.insert(&_currentContract);
+		for (auto const& [itContract, itReferencee]: _currentContract.annotation().contractDependencies)
+		{
+			auto const& [reference, referencee] = dependenciesAreCyclic(*itContract, itReferencee, seen);
+
+			if (reference)
+				return {reference, referencee};
+		}
+		return {nullptr, nullptr};
+	}
+};
 }
 
 PostTypeChecker::PostTypeChecker(langutil::ErrorReporter& _errorReporter): m_errorReporter(_errorReporter)
@@ -371,4 +444,5 @@ PostTypeChecker::PostTypeChecker(langutil::ErrorReporter& _errorReporter): m_err
 	m_checkers.push_back(make_shared<ModifierContextChecker>(_errorReporter));
 	m_checkers.push_back(make_shared<EventOutsideEmitChecker>(_errorReporter));
 	m_checkers.push_back(make_shared<NoVariablesInInterfaceChecker>(_errorReporter));
+	m_checkers.push_back(make_shared<CircularContractDependencies>(_errorReporter));
 }
