@@ -55,7 +55,7 @@ vector<solidity::frontend::test::FunctionCall> TestFileParser::parseFunctionCall
 	vector<FunctionCall> calls;
 	if (!accept(Token::EOS))
 	{
-		assert(m_scanner.currentToken() == Token::Unknown);
+		soltestAssert(m_scanner.currentToken() == Token::Unknown, "");
 		m_scanner.scanNextToken();
 
 		while (!accept(Token::EOS))
@@ -106,6 +106,9 @@ vector<solidity::frontend::test::FunctionCall> TestFileParser::parseFunctionCall
 						tie(call.signature, lowLevelCall) = parseFunctionSignature();
 						if (lowLevelCall)
 							call.kind = FunctionCall::Kind::LowLevel;
+
+						if (checkBuiltinFunction(call.signature))
+							call.kind = FunctionCall::Kind::Builtin;
 
 						if (accept(Token::Comma, true))
 							call.value = parseFunctionCallValue();
@@ -194,6 +197,9 @@ pair<string, bool> TestFileParser::parseFunctionSignature()
 		signature = m_scanner.currentLiteral();
 		expect(Token::Identifier);
 	}
+
+	if (checkBuiltinFunction(signature))
+		return {signature, false};
 
 	signature += formatToken(Token::LParen);
 	expect(Token::LParen);
@@ -488,7 +494,7 @@ void TestFileParser::Scanner::readStream(istream& _stream)
 void TestFileParser::Scanner::scanNextToken()
 {
 	// Make code coverage happy.
-	assert(formatToken(Token::NUM_TOKENS) == "");
+	soltestAssert(formatToken(Token::NUM_TOKENS).empty(), "");
 
 	auto detectKeyword = [](std::string const& _literal = "") -> std::pair<Token, std::string> {
 		if (_literal == "true") return {Token::Boolean, "true"};
@@ -711,4 +717,9 @@ char TestFileParser::Scanner::scanHexPart()
 	advance();
 
 	return static_cast<char>(value);
+}
+
+bool TestFileParser::checkBuiltinFunction(std::string const& signature)
+{
+	return m_builtins && m_builtins->count(signature) > 0;
 }
