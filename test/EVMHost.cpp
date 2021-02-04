@@ -768,6 +768,13 @@ void EVMHost::print_all_storage(ostringstream& _os)
 	}
 }
 
+void EVMHost::print_storage_at(evmc::address const& _addr, ostringstream& _os)
+{
+	for (auto const& [slot, value]: get_address_storage(_addr))
+		if (get_storage(_addr, slot))
+			_os << convertFromEVMC(slot) << ": " << convertFromEVMC(value.value) << endl;
+}
+
 StorageMap const& EVMHost::get_address_storage(evmc::address const& _addr)
 {
 	assertThrow(account_exists(_addr), Exception, "Account does not exist.");
