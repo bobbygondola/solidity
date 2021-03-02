@@ -159,6 +159,15 @@ DEFINE_PROTO_FUZZER(Program const& _input)
 		callResult.status_code != EVMC_REVERT,
 		"SolidityEvmoneInterface: EVM One reverted"
 	);
+	auto checkSelfDestructs = [](EVMHost& _host, evmc_address _addr) -> bool
+	{
+		for (auto const& selfDestructRecord: _host.recorded_selfdestructs)
+			if (selfDestructRecord.selfdestructed == _addr)
+				return true;
+		return false;
+	};
+	if (checkSelfDestructs(hostContext, deployResult.create_address))
+		return;
 	ostringstream unoptimizedStorage;
 	hostContext.print_storage_at(deployResult.create_address, unoptimizedStorage);
 
@@ -185,6 +194,8 @@ DEFINE_PROTO_FUZZER(Program const& _input)
 		callResultOpt.status_code != EVMC_REVERT,
 		"SolidityEvmoneInterface: EVM One reverted"
 	);
+	if (checkSelfDestructs(hostContext, deployResultOpt.create_address))
+		return;
 	ostringstream optimizedStorage;
 	hostContext.print_storage_at(deployResultOpt.create_address, optimizedStorage);
 	cout << "Unoptimised storage" << endl;
