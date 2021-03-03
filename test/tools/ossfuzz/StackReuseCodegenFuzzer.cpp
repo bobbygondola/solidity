@@ -86,6 +86,8 @@ DEFINE_PROTO_FUZZER(Program const& _input)
 		)
 			yulAssert(false, "Proto fuzzer generated malformed program");
 
+		if (_settings.runYulOptimiser)
+			stack.optimize();
 		return stack.assemble(AssemblyStack::Machine::EVM).bytecode->bytecode;
 	};
 
@@ -154,11 +156,22 @@ DEFINE_PROTO_FUZZER(Program const& _input)
 	debug(version, unoptimisedByteCode, deployResult);
 	auto callMessage = initCallMsg(deployResult.create_address);
 	evmc::result callResult = hostContext.call(callMessage);
-	// We don't care about EVM One failures other than EVMC_REVERT
-	solAssert(
-		callResult.status_code != EVMC_REVERT,
-		"SolidityEvmoneInterface: EVM One reverted"
-	);
+	// If the fuzzer synthesized input does not contain the revert opcode which
+	// we lazily check by string find, the EVM call should not revert.
+	bool noRevertInSource = yul_source.find("revert") == string::npos;
+	if (noRevertInSource)
+		solAssert(
+			callResult.status_code != EVMC_REVERT,
+			"SolidityEvmoneInterface: EVM One reverted"
+		);
+	cout << "Call completed" << endl;
+	// Out of gas errors are problematic because it is possible that the
+	// optimizer makes them go away, making EVM state impossible to
+	// compare in general.
+	if (callResult.status_code == EVMC_OUT_OF_GAS)
+		return;
+
+	cout << "Gas left" << endl;
 	auto checkSelfDestructs = [](EVMHost& _host, evmc_address _addr) -> bool
 	{
 		for (auto const& selfDestructRecord: _host.recorded_selfdestructs)
@@ -168,9 +181,12 @@ DEFINE_PROTO_FUZZER(Program const& _input)
 	};
 	if (checkSelfDestructs(hostContext, deployResult.create_address))
 		return;
+	cout << "No self destruct" << endl;
 	ostringstream unoptimizedStorage;
+	cout << "Create address: " << EVMHost::convertFromEVMC(deployResult.create_address) << endl;
 	hostContext.print_storage_at(deployResult.create_address, unoptimizedStorage);
 
+	settings.runYulOptimiser = true;
 	settings.optimizeStackAllocation = true;
 	bytes optimisedByteCode;
 	try
@@ -189,11 +205,11 @@ DEFINE_PROTO_FUZZER(Program const& _input)
 	);
 	auto callMessageOpt = initCallMsg(deployResultOpt.create_address);
 	evmc::result callResultOpt = hostContext.call(callMessageOpt);
-	// We don't care about EVM One failures other than EVMC_REVERT
-	solAssert(
-		callResultOpt.status_code != EVMC_REVERT,
-		"SolidityEvmoneInterface: EVM One reverted"
-	);
+	if (noRevertInSource)
+		solAssert(
+			callResultOpt.status_code != EVMC_REVERT,
+			"SolidityEvmoneInterface: EVM One reverted"
+		);
 	if (checkSelfDestructs(hostContext, deployResultOpt.create_address))
 		return;
 	ostringstream optimizedStorage;

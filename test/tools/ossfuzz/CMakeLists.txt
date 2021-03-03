@@ -112,7 +112,6 @@ if (OSSFUZZ)
             StackReuseCodegenFuzzer.cpp
             protoToYul.cpp
             yulProto.pb.cc
-            protomutators/YulProtoMutator.cpp
             ../../EVMHost.cpp
     )
     target_include_directories(stack_reuse_codegen_ossfuzz PRIVATE /usr/include/libprotobuf-mutator)
